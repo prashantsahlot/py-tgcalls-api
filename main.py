@@ -1,3 +1,4 @@
+import os
 import asyncio
 import tempfile
 import aiohttp
@@ -6,7 +7,7 @@ from flask import Flask, request, jsonify
 from pyrogram import Client
 from pytgcalls import PyTgCalls, idle
 from pytgcalls.types import MediaStream
-
+from threading import Thread
 
 # Initialize Flask app
 app = Flask(__name__)
@@ -20,10 +21,6 @@ py_tgcalls = PyTgCalls(assistant)
 
 # Download API URL
 DOWNLOAD_API_URL = "https://frozen-youtube-api-search-link-ksog.onrender.com/download?url="
-CHUNK_SIZE = 1024 * 256  # 256KB chunks (lower RAM usage)
-DOWNLOAD_TIMEOUT = 30  # Timeout for slow downloads
-MAX_FILE_SIZE_MB = 50  # Prevents downloading files larger than 50MB
-SEMAPHORE = asyncio.Semaphore(1)
 
 # Start Pyrogram client and PyTgCalls
 client_started = False
@@ -36,33 +33,23 @@ async def start_clients():
         client_started = True
 
 async def download_audio(url):
-    """Efficiently downloads the audio file with memory limits."""
-    async with SEMAPHORE:  # Ensures only one download at a time
-        try:
-            temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.mp3')
-            file_name = temp_file.name
-            download_url = f"{DOWNLOAD_API_URL}{url}"
-
-            async with aiohttp.ClientSession() as session:
-                async with session.get(download_url, timeout=DOWNLOAD_TIMEOUT) as response:
-                    if response.status != 200:
-                        raise Exception(f"Failed to download audio. HTTP status: {response.status}")
-
-                    # Save the file in chunks
+    """Downloads the audio from a given URL and returns the file path."""
+    try:
+        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.mp3')
+        file_name = temp_file.name
+        download_url = f"{DOWNLOAD_API_URL}{url}"
+        async with aiohttp.ClientSession() as session:
+            async with session.get(download_url) as response:
+                if response.status == 200:
                     with open(file_name, 'wb') as f:
-                        while True:
-                            chunk = await response.content.read(CHUNK_SIZE)
-                            if not chunk:
-                                break
-                            f.write(chunk)
-
+                        f.write(await response.read())
                     return file_name
-        except asyncio.TimeoutError:
-            raise Exception("Download request timed out")
-        except Exception as e:
-            raise Exception(f"Error downloading audio: {e}")
+                else:
+                    raise Exception(f"Failed to download audio. HTTP status: {response.status}")
+    except Exception as e:
+        raise Exception(f"Error downloading audio: {e}")
 
-async def play_media(chat_id, video_url, title):
+async def play_media(chat_id, video_url):
     media_path = await download_audio(video_url)
     await py_tgcalls.play(
         chat_id,
@@ -72,9 +59,12 @@ async def play_media(chat_id, video_url, title):
         ),
     )
 
+@app.route('/')
+def home():
+    return "Frozen is Up & Running!"
+
 @app.route('/play', methods=['GET'])
 def play():
-    # Extract query parameters
     chatid = request.args.get('chatid')
     title = request.args.get('title')
     
@@ -86,35 +76,29 @@ def play():
     except ValueError:
         return jsonify({'error': 'Invalid chatid parameter'}), 400
     
-    # Search for the video
     search_response = requests.get(f"https://odd-block-a945.tenopno.workers.dev/search?title={title}")
     if search_response.status_code != 200:
         return jsonify({'error': 'Failed to search video'}), 500
     
     search_result = search_response.json()
     video_url = search_result.get("link")
-    video_title = search_result.get("title")
     
     if not video_url:
         return jsonify({'error': 'No video found'}), 404
     
-    # Start the clients if not already started
-    asyncio.run(start_clients())
-
-    # Play the media in the specified chat
-    asyncio.run(play_media(chat_id, video_url, video_title))
-
-    # Return a response
-    return jsonify({'message': 'Playing media', 'chatid': chatid, 'title': video_title})
+    asyncio.create_task(start_clients())
+    asyncio.create_task(play_media(chat_id, video_url))
+    
+    return jsonify({'message': 'Playing media', 'chatid': chatid, 'title': title})
 
 def run_flask():
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8000)))
 
+async def main():
+    await start_clients()
+    await idle()
+
 if __name__ == '__main__':
-    # Run Flask in a separate thread
-    from threading import Thread
     flask_thread = Thread(target=run_flask)
     flask_thread.start()
-
-    # Run the idle function to keep the client running
-    asyncio.run(idle())
+    asyncio.run(main())
