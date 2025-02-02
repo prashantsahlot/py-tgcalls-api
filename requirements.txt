@@ -1,0 +1,12 @@
+pyrogram
+git+https://github.com/pytgcalls/pytgcalls
+yt-dlp
+aiohttp
+asyncio
+flask 
+Flask-RESTful
+tgcrypto
+ffmpeg-python
+isodate
+pillow
+psutil
