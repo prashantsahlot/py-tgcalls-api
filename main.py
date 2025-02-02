@@ -108,7 +108,7 @@ def play():
     return jsonify({'message': 'Playing media', 'chatid': chatid, 'title': video_title})
 
 def run_flask():
-    app.run(port=8000)
+    app.run(port=0000)
 
 if __name__ == '__main__':
     # Run Flask in a separate thread
