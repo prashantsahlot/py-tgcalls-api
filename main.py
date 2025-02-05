@@ -112,60 +112,58 @@ async def join(client: Client, message: Message):
 
 @app.route('/play', methods=['GET'])
 def play():
-    # Extract query parameters
     chatid = request.args.get('chatid')
     title = request.args.get('title')
-    
+
     if not chatid or not title:
         return jsonify({'error': 'Missing chatid or title parameter'}), 400
-    
+
     try:
         chat_id = int(chatid)
     except ValueError:
         return jsonify({'error': 'Invalid chatid parameter'}), 400
-    
-    # Search for the video (using cache)
+
     search_result = search_video(title)
     if not search_result:
         return jsonify({'error': 'Failed to search video'}), 500
-    
+
     video_url = search_result.get("link")
     video_title = search_result.get("title")
-    
+
     if not video_url:
         return jsonify({'error': 'No video found'}), 404
-    
+
     # Ensure clients are started before playing media
-    if not client_started:
+    if not assistant.is_connected:
         asyncio.run(start_clients())
 
     asyncio.run(play_media(chat_id, video_url, video_title))
-    
+
     return jsonify({'message': 'Playing media', 'chatid': chatid, 'title': video_title})
 
 
 @app.route('/stop', methods=['GET'])
 def stop():
     chatid = request.args.get('chatid')
-    
+
     if not chatid:
         return jsonify({'error': 'Missing chatid parameter'}), 400
-    
+
     try:
         chat_id = int(chatid)
     except ValueError:
         return jsonify({'error': 'Invalid chatid parameter'}), 400
-    
-    # Ensure clients are started before attempting to leave call
-    asyncio.run(start_clients())
-    
-    # Call leave_call directly (synchronous function)
+
+    if not assistant.is_connected:
+        asyncio.run(start_clients())
+
     try:
         py_tgcalls.leave_call(chat_id)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
     return jsonify({'message': 'Stopped media', 'chatid': chatid})
+
 
 def run_flask():
     port = int(os.environ.get("PORT", 8000))  # Get the assigned port (default: 8000)
