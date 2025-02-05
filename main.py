@@ -133,10 +133,12 @@ def play():
     if not video_url:
         return jsonify({'error': 'No video found'}), 404
 
-    # Ensure clients are started before playing media
-    if not assistant.is_connected:
+    # Instead of checking only assistant.is_connected, ensure both clients are running
+    if not (assistant.is_connected and client_started):
+        # This call ensures both assistant and py_tgcalls are started.
         asyncio.run(start_clients())
 
+    # At this point, py_tgcalls should be started.
     asyncio.run(play_media(chat_id, video_url, video_title))
 
     return jsonify({'message': 'Playing media', 'chatid': chatid, 'title': video_title})
