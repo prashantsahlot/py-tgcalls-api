@@ -136,7 +136,9 @@ def play():
         return jsonify({'error': 'No video found'}), 404
     
     # Ensure clients are started before playing media
+   if not client_started:
     asyncio.run(start_clients())
+
     asyncio.run(play_media(chat_id, video_url, video_title))
     
     return jsonify({'message': 'Playing media', 'chatid': chatid, 'title': video_title})
