@@ -83,7 +83,7 @@ async def play_media(chat_id, video_url, title):
 @assistant.on_message(filters.command(["join"], "/"))
 async def join(client: Client, message: Message):
     input_text = message.text.split(" ", 1)[1] if len(message.text.split()) > 1 else None
-    processing_msg = await message.reply_text("`Processing...`")
+    processing_msg = await message.reply_text("Processing...")
 
     if not input_text:
         await processing_msg.edit("❌ Please provide a valid group/channel link or username.")
@@ -98,7 +98,7 @@ async def join(client: Client, message: Message):
     try:
         # Attempt to join the group/channel
         await client.join_chat(input_text)
-        await processing_msg.edit(f"**Successfully Joined Group/Channel:** `{input_text}`")
+        await processing_msg.edit(f"**Successfully Joined Group/Channel:** {input_text}")
     except Exception as error:
         error_message = str(error)
         if "USERNAME_INVALID" in error_message:
@@ -106,7 +106,7 @@ async def join(client: Client, message: Message):
         elif "INVITE_HASH_INVALID" in error_message:
             await processing_msg.edit("❌ ERROR: Invalid invite link. Please verify and try again.")
         elif "USER_ALREADY_PARTICIPANT" in error_message:
-            await processing_msg.edit(f"✅ You are already a member of `{input_text}`.")
+            await processing_msg.edit(f"✅ You are already a member of {input_text}.")
         else:
             await processing_msg.edit(f"**ERROR:** \n\n{error_message}")
 
@@ -133,12 +133,10 @@ def play():
     if not video_url:
         return jsonify({'error': 'No video found'}), 404
 
-    # Instead of checking only assistant.is_connected, ensure both clients are running
-    if not (assistant.is_connected and client_started):
-        # This call ensures both assistant and py_tgcalls are started.
+    # Ensure clients are started before playing media
+    if not assistant.is_connected:
         asyncio.run(start_clients())
 
-    # At this point, py_tgcalls should be started.
     asyncio.run(play_media(chat_id, video_url, video_title))
 
     return jsonify({'message': 'Playing media', 'chatid': chatid, 'title': video_title})
