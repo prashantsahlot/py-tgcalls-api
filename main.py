@@ -15,12 +15,7 @@ from pytgcalls.types import MediaStream
 app = Flask(__name__)
 
 # Get session string from environment variable
-ASSISTANT_SESSION = os.environ.get("ASSISTANT_SESSION")
-
-if not ASSISTANT_SESSION:
-    raise ValueError("ASSISTANT_SESSION environment variable not set")
-
-# Initialize Pyrogram client
+ASSISTANT_SESSION = "BQHAYsoALYTVVd_j-wop8ialwWTNwhmO2lB_Sl9g3Ax2UgnJzTo66JCeLgU3iqmvVUPXCnLcturmRKYLXIewFxljIxRR_3KZKgBiaRwUvHYwUmJy9LdIMnDZXYiZZ69S7rm6MNunP01icAauFBiYWOXqWLoaPjDqRj5G2P7xBctqw4V2g6uQqjM4I2GMThhv7dGuhTT0YqQdHPk7vSj3AbET0guEB7zt5Sq1ckRIls54QqqAsUAwOOfTIT7mrSh5VUSuXOiV1TRsj49haTHqB0LgoCxdruramax3Cmj0dWnMo6vyd7U0Gl5pWamnVmXnuuMv5G4P-qexOokEz6DgyVfTzOY5mAAAAAE6CvCVAA"
 assistant = Client("assistant_account", session_string=ASSISTANT_SESSION)
 
 # Initialize PyTgCalls
