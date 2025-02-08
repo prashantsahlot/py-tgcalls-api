@@ -11,6 +11,8 @@ from pyrogram import Client, filters
 from pyrogram.types import Message
 from pytgcalls import PyTgCalls
 from pytgcalls.types import MediaStream
+from pytgcalls import filters as fl
+from pytgcalls.types import Update
 
 # Initialize Flask app
 app = Flask(__name__)
@@ -27,6 +29,9 @@ assistant = None
 py_tgcalls = None
 clients_initialized = False
 
+# Global dict to store status message IDs keyed by chat id.
+stream_status_messages = {}
+
 # Create a dedicated asyncio event loop for all async operations
 tgcalls_loop = asyncio.new_event_loop()
 
@@ -38,21 +43,52 @@ def start_loop(loop):
 tgcalls_thread = threading.Thread(target=start_loop, args=(tgcalls_loop,), daemon=True)
 tgcalls_thread.start()
 
+# Global list to hold pending update handlers.
+pending_update_handlers = []
+
+def delayed_on_update(filter_):
+    """
+    A decorator that defers registration of update handlers until py_tgcalls is ready.
+    """
+    def decorator(func):
+        pending_update_handlers.append((filter_, func))
+        return func
+    return decorator
+
+@delayed_on_update(fl.stream_end)
+async def stream_end_handler(_: PyTgCalls, update: Update):
+    chat_id = update.chat_id
+    try:
+        # Leave the call first.
+        await py_tgcalls.leave_call(chat_id)
+        # Send a message to the username "@dgxdgfxbot" indicating that the stream ended.
+        await assistant.send_message(
+            "@dgxdgfxbot",
+            f"Stream ended in chat id {chat_id}"
+        )
+    except Exception as e:
+        print(f"Error leaving voice chat: {e}")
+
+
+
 async def init_clients():
     """
     Lazily creates and starts the Pyrogram client and PyTgCalls instance
-    on the dedicated event loop.
+    on the dedicated event loop, and registers pending update handlers.
     """
     global assistant, py_tgcalls, clients_initialized
     if not clients_initialized:
         assistant = Client(
             "assistant_account",
-            session_string="BQHAYsoALYTVVd_j-wop8ialwWTNwhmO2lB_Sl9g3Ax2UgnJzTo66JCeLgU3iqmvVUPXCnLcturmRKYLXIewFxljIxRR_3KZKgBiaRwUvHYwUmJy9LdIMnDZXYiZZ69S7rm6MNunP01icAauFBiYWOXqWLoaPjDqRj5G2P7xBctqw4V2g6uQqjM4I2GMThhv7dGuhTT0YqQdHPk7vSj3AbET0guEB7zt5Sq1ckRIls54QqqAsUAwOOfTIT7mrSh5VUSuXOiV1TRsj49haTHqB0LgoCxdruramax3Cmj0dWnMo6vyd7U0Gl5pWamnVmXnuuMv5G4P-qexOokEz6DgyVfTzOY5mAAAAAE6CvCVAA"
+            session_string="BQHAYsoAeO9fomcCORqEtaXjufPveyH-adcwHqBsE-J9lrTpFo1aZoYodlbW-mfGk6qH6YACF5-wv7evG7Rs4tO45hkLRFPqOh72EqZHPBjh_iyRViqRrK-fmDZp8wX3Q6xEe9sy9iud8OnP0kYR_VcqrDbyudQ1Ws6uXYOj1e6jNvYcy1WXjnXegirEtsoFFabVoTYTKD1kmfYKdQzhorqnNULNzAu5sBwejnBEOMyuTGciMSibojti-D5auW400uxtUJ7Lst55NX39cgnKm9lVIY0X5qgyYeCQIPPoAnTXiskgkXO3jvNOiWiOrWgpSRN3Lz8jNPvb1TN21emMSIgsQO08-gAAAAE6CvCVAA"
         )
         await assistant.start()
         py_tgcalls = PyTgCalls(assistant)
         await py_tgcalls.start()
         clients_initialized = True
+        # Register all pending update handlers now that py_tgcalls is initialized.
+        for filter_, handler in pending_update_handlers:
+            py_tgcalls.on_update(filter_)(handler)
 
 async def download_audio(url):
     """Downloads the audio from a given URL and returns the file path."""
@@ -136,8 +172,6 @@ def stop():
         if not clients_initialized:
             asyncio.run_coroutine_threadsafe(init_clients(), tgcalls_loop).result()
 
-        # Wrap leave_call in a helper coroutine that first yields control
-        # to ensure it runs entirely within the dedicated event loop.
         async def leave_call_wrapper(cid):
             await asyncio.sleep(0)
             return await py_tgcalls.leave_call(cid)
@@ -151,5 +185,6 @@ def stop():
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 8000))
     app.run(host="0.0.0.0", port=port)
+
 
 
