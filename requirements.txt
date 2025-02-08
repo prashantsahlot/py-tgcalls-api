@@ -9,3 +9,5 @@ tgcrypto
 ffmpeg-python
 requests
 python-dotenv
+hypercorn
+functools
