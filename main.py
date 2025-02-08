@@ -13,21 +13,22 @@ from pyrogram.types import Message
 from pytgcalls import PyTgCalls, idle
 from pytgcalls.types import MediaStream
 
-# Global variables for tracking client state and the running event loop
+# Global variables to track client state and event loop
 running_loop = None
 client_started = False
+client_ready_event = threading.Event()  # signals when clients have started
 
 # Initialize Flask app
 app = Flask(__name__)
 
-# Initialize Pyrogram client with the provided session string
+# Initialize Pyrogram client with your session string
 ASSISTANT_SESSION = "BQHAYsoAjIfG9yz9qTvjd2Vr73WlBAYW_-NgrwQPRsb_3A3aG9QotWET_ORDF4vppFUW9lIOoaMENTZrjcrYMTUBvBr0eHWUS6zogw95HuaiYExVP21VIUbJjO8Joq79YArSw0HR9gfa6keOkBSUkKO8ThQRDmm5I7QAYYev1b4SJR-h3JbyK1YmjcDY_zAeUKCU2Y30tj7fnLrmD5W7c77g66anI-LeUyNTeAl-bO-MYcGcSs3VhT9FrWaWEYMTnjmbRPGAXhUKlcW8JkfD0BTYoITBiFrnLESwFtJdcEvXSwa23ZPRONLZAp49JoOV3W2Uiuo6-8LP9s2TEL7LSBr_NBhaRwAAAAE6CvCVAA"
 assistant = Client("assistant_account", session_string=ASSISTANT_SESSION)
 
-# Initialize PyTgCalls with the assistant
+# Initialize PyTgCalls with the Pyrogram client
 py_tgcalls = PyTgCalls(assistant)
 
-# Download API URL (for downloading audio)
+# Download API URL for audio downloads
 DOWNLOAD_API_URL = "https://frozen-youtube-api-search-link-ksog.onrender.com/download?url="
 
 # Caching dictionaries
@@ -35,16 +36,17 @@ search_cache = {}
 download_cache = {}
 
 async def start_clients():
-    """Starts the Pyrogram and PyTgCalls clients if not already started and stores the running event loop."""
+    """Start Pyrogram and PyTgCalls and store the running event loop."""
     global client_started, running_loop
     if not client_started:
         await assistant.start()
         await py_tgcalls.start()
         client_started = True
         running_loop = asyncio.get_running_loop()
+        client_ready_event.set()  # signal that the loop is ready
 
 async def download_audio(url):
-    """Downloads audio from a given URL and returns the local file path."""
+    """Download audio from the given URL and return the file path."""
     if url in download_cache:
         return download_cache[url]
     try:
@@ -65,14 +67,14 @@ async def download_audio(url):
 
 @functools.lru_cache(maxsize=100)
 def search_video(title):
-    """Searches for a video using an external API and caches the result."""
+    """Search for a video using an external API and cache the result."""
     search_response = requests.get(f"https://odd-block-a945.tenopno.workers.dev/search?title={title}")
     if search_response.status_code != 200:
         return None
     return search_response.json()
 
 async def play_media(chat_id, video_url, title):
-    """Downloads audio from video URL and plays it in the specified chat."""
+    """Download audio for the video and play it in the specified chat."""
     media_path = await download_audio(video_url)
     await py_tgcalls.play(
         chat_id,
@@ -90,7 +92,7 @@ async def join(client: Client, message: Message):
         await processing_msg.edit("❌ Please provide a valid group/channel link or username.")
         return
 
-    # Process the input: if it is a Telegram link or starts with @, clean it
+    # Process input if it's a Telegram link or starts with '@'
     if re.match(r"https://t\.me/[\w_]+/?", input_text):
         input_text = input_text.split("https://t.me/")[1].strip("/")
     elif input_text.startswith("@"):
@@ -130,13 +132,18 @@ def play():
     if not video_url:
         return jsonify({'error': 'No video found'}), 404
 
-    # Schedule play_media on the existing event loop (the one where clients were started)
+    # Ensure the clients have started
+    if not client_ready_event.is_set():
+        if not client_ready_event.wait(timeout=10):
+            return jsonify({'error': 'Clients did not start in time'}), 500
+
+    # Schedule play_media on the existing event loop
     future = asyncio.run_coroutine_threadsafe(
         play_media(chat_id, video_url, video_title),
         running_loop
     )
     try:
-        future.result()  # Optionally wait for it to complete
+        future.result()  # wait for completion if desired
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -165,11 +172,13 @@ def start_async_clients():
     asyncio.run(start_clients())
 
 if __name__ == '__main__':
-    # Start the async clients in a separate daemon thread.
+    # Start the async clients in a daemon thread.
     threading.Thread(target=start_async_clients, daemon=True).start()
     
-    # Wait briefly to ensure the clients have started and running_loop is set.
-    time.sleep(3)
+    # Wait until clients have started.
+    if not client_ready_event.wait(timeout=10):
+        print("Clients did not start in time.")
+        exit(1)
     
     # Start Flask in a separate thread.
     flask_thread = threading.Thread(target=run_flask)
@@ -177,4 +186,5 @@ if __name__ == '__main__':
     
     # Keep the PyTgCalls client running.
     asyncio.run(idle())
+
 
