@@ -80,7 +80,7 @@ async def init_clients():
     if not clients_initialized:
         assistant = Client(
             "assistant_account",
-            session_string="BQHAYsoAWxtclNxe-nYAE7VLuLh_7pNlxrqd3o5jqAU-rP_Z81s_KQu5P0OQT5owL0xDiuF1NuO-IQwAwl8PkM0EJUkoqejOIwzQBnrSofZfL0e_jMQA4ORJJv8spxn2X-s15CpoPnvg4pDxWS5R1c59-OEEjdc30bDzxg2Frx_-MluquoBnReH1oeQBGA0S8WpnHCa7BCrtRHZI7qT5YikTL-q7aguHNkxN7vpwW-X7GGQmVtV0kEyjdwD-IAwMf7dJV6ymX-jMh1Tg0aDxbwofgsUC2X_ditaf2EIbVuym966N4XvvJgc-zHyzAm3txBDQtq3itQWaBbF89fBmGeiZPcwmuAAAAAG4QLY7AA"
+            session_string="BQHAYsoAFoY2AkF2OPeroqp4UqWPqn_04KDTeB3V8x8pQCuWxnSomBB4jkNd50w6dAbNpzCCYhjhn_qfCekbhiuE4pazSQC1Ci0ThmzRJXaNChnU5TYbdGKHOtji4E3QRMqAbxq3vr83u6PSL2mtAPYYtqqixPpPUJ0J2-0KMgA4HBiNDGj7N-sTRlI3A9urJXXFOv1cEWgubYi_Hgaio_egajUhBPCvGXi9sRcmCmmkTKiYHlCJrey5-cZ4Z45x7IEzG0O1Cp1G910qjZO6GO1KTyevEuYy4p2VW-RSwoLr6ogngrFkHPcm7oLPQ2l3emn894zS1BCrkhqtbOojREDAKW6v5AAAAAE6CvCVAA"
         )
         await assistant.start()
         py_tgcalls = PyTgCalls(assistant)
