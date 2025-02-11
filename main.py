@@ -47,9 +47,7 @@ tgcalls_thread.start()
 pending_update_handlers = []
 
 def delayed_on_update(filter_):
-    """
-    A decorator that defers registration of update handlers until py_tgcalls is ready.
-    """
+    """A decorator that defers registration of update handlers until py_tgcalls is ready."""
     def decorator(func):
         pending_update_handlers.append((filter_, func))
         return func
@@ -61,7 +59,7 @@ async def stream_end_handler(_: PyTgCalls, update: Update):
     try:
         # Leave the call first.
         await py_tgcalls.leave_call(chat_id)
-        # Send a message to the username "@dgxdgfxbot" indicating that the stream ended.
+        # Send a message to the username "@vcmusiclubot" indicating that the stream ended.
         await assistant.send_message(
             "@vcmusiclubot",
             f"Stream ended in chat id {chat_id}"
@@ -69,13 +67,8 @@ async def stream_end_handler(_: PyTgCalls, update: Update):
     except Exception as e:
         print(f"Error leaving voice chat: {e}")
 
-
-
 async def init_clients():
-    """
-    Lazily creates and starts the Pyrogram client and PyTgCalls instance
-    on the dedicated event loop, and registers pending update handlers.
-    """
+    """Lazily creates and starts the Pyrogram client and PyTgCalls instance on the dedicated event loop."""
     global assistant, py_tgcalls, clients_initialized
     if not clients_initialized:
         assistant = Client(
@@ -89,6 +82,37 @@ async def init_clients():
         # Register all pending update handlers now that py_tgcalls is initialized.
         for filter_, handler in pending_update_handlers:
             py_tgcalls.on_update(filter_)(handler)
+
+@assistant.on_message(filters.command(["join"], "/"))
+async def join(client: Client, message: Message):
+    """Handles the /join command to make the assistant join a group or channel."""
+    input_text = message.text.split(" ", 1)[1] if len(message.text.split()) > 1 else None
+    processing_msg = await message.reply_text("`Processing...`")
+
+    if not input_text:
+        await processing_msg.edit("❌ Please provide a valid group/channel link or username.")
+        return
+
+    # Validate and process the input
+    if re.match(r"https://t\.me/[\w_]+/?", input_text):
+        input_text = input_text.split("https://t.me/")[1].strip("/")
+    elif input_text.startswith("@"):
+        input_text = input_text[1:]
+
+    try:
+        # Attempt to join the group/channel
+        await client.join_chat(input_text)
+        await processing_msg.edit(f"**Successfully Joined Group/Channel:** `{input_text}`")
+    except Exception as error:
+        error_message = str(error)
+        if "USERNAME_INVALID" in error_message:
+            await processing_msg.edit("❌ ERROR: Invalid username or link. Please check and try again.")
+        elif "INVITE_HASH_INVALID" in error_message:
+            await processing_msg.edit("❌ ERROR: Invalid invite link. Please verify and try again.")
+        elif "USER_ALREADY_PARTICIPANT" in error_message:
+            await processing_msg.edit(f"✅ You are already a member of `{input_text}`.")
+        else:
+            await processing_msg.edit(f"**ERROR:** \n\n{error_message}")
 
 async def download_audio(url):
     """Downloads the audio from a given URL and returns the file path."""
@@ -110,25 +134,6 @@ async def download_audio(url):
     except Exception as e:
         raise Exception(f"Error downloading audio: {e}")
 
-@functools.lru_cache(maxsize=100)
-def search_video(title):
-    """Searches for a video using the external API and caches the result."""
-    search_response = requests.get(f"https://odd-block-a945.tenopno.workers.dev/search?title={title}")
-    if search_response.status_code != 200:
-        return None
-    return search_response.json()
-
-async def play_media(chat_id, video_url, title):
-    """Downloads and plays the media in the specified chat."""
-    media_path = await download_audio(video_url)
-    await py_tgcalls.play(
-        chat_id,
-        MediaStream(
-            media_path,
-            video_flags=MediaStream.Flags.IGNORE,
-        )
-    )
-
 @app.route('/play', methods=['GET'])
 def play():
     chatid = request.args.get('chatid')
@@ -140,23 +145,12 @@ def play():
     except ValueError:
         return jsonify({'error': 'Invalid chatid parameter'}), 400
 
-    search_result = search_video(title)
-    if not search_result:
-        return jsonify({'error': 'Failed to search video'}), 500
-    video_url = search_result.get("link")
-    video_title = search_result.get("title")
-    if not video_url:
-        return jsonify({'error': 'No video found'}), 404
-
     try:
-        # Initialize the clients on the dedicated loop if needed.
         asyncio.run_coroutine_threadsafe(init_clients(), tgcalls_loop).result()
-        # Schedule play_media on the dedicated loop.
-        asyncio.run_coroutine_threadsafe(play_media(chat_id, video_url, video_title), tgcalls_loop).result()
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-    return jsonify({'message': 'Playing media', 'chatid': chatid, 'title': video_title})
+    return jsonify({'message': 'Playing media', 'chatid': chatid, 'title': title})
 
 @app.route('/stop', methods=['GET'])
 def stop():
@@ -185,6 +179,3 @@ def stop():
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 8000))
     app.run(host="0.0.0.0", port=port)
-
-
-
