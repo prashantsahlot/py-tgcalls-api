@@ -178,6 +178,50 @@ def stop():
 
     return jsonify({'message': 'Stopped media', 'chatid': chatid})
 
+# New /join API endpoint
+@app.route('/join', methods=['GET'])
+def join_api():
+    # Get the group/channel link or username from the request query parameters.
+    input_text = request.args.get('input')
+    if not input_text:
+        return jsonify({'error': 'Missing input parameter (provide group/channel link or username)'}), 400
+
+    # Ensure clients are initialized
+    try:
+        asyncio.run_coroutine_threadsafe(init_clients(), tgcalls_loop).result()
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+    async def join_chat_api(input_text: str):
+        # Process the input text in the same way as your existing join handler.
+        if re.match(r"https://t\.me/[\w_]+/?", input_text):
+            input_text = input_text.split("https://t.me/")[1].strip("/")
+        elif input_text.startswith("@"):
+            input_text = input_text[1:]
+        try:
+            # Attempt to join the group/channel.
+            await assistant.join_chat(input_text)
+            return {'message': f"Successfully joined group/channel: {input_text}"}
+        except Exception as error:
+            error_message = str(error)
+            if "USERNAME_INVALID" in error_message:
+                return {'error': 'Invalid username or link. Please check and try again.'}
+            elif "INVITE_HASH_INVALID" in error_message:
+                return {'error': 'Invalid invite link. Please verify and try again.'}
+            elif "USER_ALREADY_PARTICIPANT" in error_message:
+                return {'message': f"Already a member of {input_text}."}
+            else:
+                return {'error': error_message}
+
+    try:
+        result = asyncio.run_coroutine_threadsafe(join_chat_api(input_text), tgcalls_loop).result()
+        if "error" in result:
+            return jsonify(result), 400
+        else:
+            return jsonify(result)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 8000))
     # Note: Running Flask in debug mode or with auto-reload sometimes conflicts with threaded event loops.
