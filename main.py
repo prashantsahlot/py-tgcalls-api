@@ -13,6 +13,7 @@ from pytgcalls import PyTgCalls
 from pytgcalls.types import MediaStream
 from pytgcalls import filters as fl
 from pytgcalls.types import Update
+from pyrogram.handlers import MessageHandler
 
 # Initialize Flask app
 app = Flask(__name__)
@@ -59,7 +60,7 @@ async def stream_end_handler(_: PyTgCalls, update: Update):
     try:
         # Leave the call first.
         await py_tgcalls.leave_call(chat_id)
-        # Send a message to the username "@vcmusiclubot" indicating that the stream ended.
+        # Send a message indicating that the stream ended.
         await assistant.send_message(
             "@vcmusiclubot",
             f"Stream ended in chat id {chat_id}"
@@ -67,25 +68,8 @@ async def stream_end_handler(_: PyTgCalls, update: Update):
     except Exception as e:
         print(f"Error leaving voice chat: {e}")
 
-async def init_clients():
-    """Lazily creates and starts the Pyrogram client and PyTgCalls instance on the dedicated event loop."""
-    global assistant, py_tgcalls, clients_initialized
-    if not clients_initialized:
-        assistant = Client(
-            "assistant_account",
-            session_string="BQHAYsoAFoY2AkF2OPeroqp4UqWPqn_04KDTeB3V8x8pQCuWxnSomBB4jkNd50w6dAbNpzCCYhjhn_qfCekbhiuE4pazSQC1Ci0ThmzRJXaNChnU5TYbdGKHOtji4E3QRMqAbxq3vr83u6PSL2mtAPYYtqqixPpPUJ0J2-0KMgA4HBiNDGj7N-sTRlI3A9urJXXFOv1cEWgubYi_Hgaio_egajUhBPCvGXi9sRcmCmmkTKiYHlCJrey5-cZ4Z45x7IEzG0O1Cp1G910qjZO6GO1KTyevEuYy4p2VW-RSwoLr6ogngrFkHPcm7oLPQ2l3emn894zS1BCrkhqtbOojREDAKW6v5AAAAAE6CvCVAA"
-        )
-        await assistant.start()
-        py_tgcalls = PyTgCalls(assistant)
-        await py_tgcalls.start()
-        clients_initialized = True
-        # Register all pending update handlers now that py_tgcalls is initialized.
-        for filter_, handler in pending_update_handlers:
-            py_tgcalls.on_update(filter_)(handler)
-
-@assistant.on_message(filters.command(["join"], "/"))
+# Define the join handler function without using a decorator.
 async def join(client: Client, message: Message):
-    """Handles the /join command to make the assistant join a group or channel."""
     input_text = message.text.split(" ", 1)[1] if len(message.text.split()) > 1 else None
     processing_msg = await message.reply_text("`Processing...`")
 
@@ -93,14 +77,14 @@ async def join(client: Client, message: Message):
         await processing_msg.edit("❌ Please provide a valid group/channel link or username.")
         return
 
-    # Validate and process the input
+    # Validate and process the input.
     if re.match(r"https://t\.me/[\w_]+/?", input_text):
         input_text = input_text.split("https://t.me/")[1].strip("/")
     elif input_text.startswith("@"):
         input_text = input_text[1:]
 
     try:
-        # Attempt to join the group/channel
+        # Attempt to join the group/channel.
         await client.join_chat(input_text)
         await processing_msg.edit(f"**Successfully Joined Group/Channel:** `{input_text}`")
     except Exception as error:
@@ -134,6 +118,24 @@ async def download_audio(url):
     except Exception as e:
         raise Exception(f"Error downloading audio: {e}")
 
+async def init_clients():
+    """Lazily creates and starts the Pyrogram client and PyTgCalls instance on the dedicated event loop."""
+    global assistant, py_tgcalls, clients_initialized
+    if not clients_initialized:
+        assistant = Client(
+            "assistant_account",
+            session_string="BQHAYsoAFoY2AkF2OPeroqp4UqWPqn_04KDTeB3V8x8pQCuWxnSomBB4jkNd50w6dAbNpzCCYhjhn_qfCekbhiuE4pazSQC1Ci0ThmzRJXaNChnU5TYbdGKHOtji4E3QRMqAbxq3vr83u6PSL2mtAPYYtqqixPpPUJ0J2-0KMgA4HBiNDGj7N-sTRlI3A9urJXXFOv1cEWgubYi_Hgaio_egajUhBPCvGXi9sRcmCmmkTKiYHlCJrey5-cZ4Z45x7IEzG0O1Cp1G910qjZO6GO1KTyevEuYy4p2VW-RSwoLr6ogngrFkHPcm7oLPQ2l3emn894zS1BCrkhqtbOojREDAKW6v5AAAAAE6CvCVAA"
+        )
+        await assistant.start()
+        # Now that assistant is started, manually register the join handler:
+        assistant.add_handler(MessageHandler(join, filters.command(["join"], "/")))
+        py_tgcalls = PyTgCalls(assistant)
+        await py_tgcalls.start()
+        clients_initialized = True
+        # Register all pending update handlers now that py_tgcalls is initialized.
+        for filter_, handler in pending_update_handlers:
+            py_tgcalls.on_update(filter_)(handler)
+
 @app.route('/play', methods=['GET'])
 def play():
     chatid = request.args.get('chatid')
@@ -141,7 +143,7 @@ def play():
     if not chatid or not title:
         return jsonify({'error': 'Missing chatid or title parameter'}), 400
     try:
-        chat_id = int(chatid)
+        int(chatid)
     except ValueError:
         return jsonify({'error': 'Invalid chatid parameter'}), 400
 
@@ -158,7 +160,7 @@ def stop():
     if not chatid:
         return jsonify({'error': 'Missing chatid parameter'}), 400
     try:
-        chat_id = int(chatid)
+        int(chatid)
     except ValueError:
         return jsonify({'error': 'Invalid chatid parameter'}), 400
 
@@ -170,7 +172,7 @@ def stop():
             await asyncio.sleep(0)
             return await py_tgcalls.leave_call(cid)
 
-        asyncio.run_coroutine_threadsafe(leave_call_wrapper(chat_id), tgcalls_loop).result()
+        asyncio.run_coroutine_threadsafe(leave_call_wrapper(int(chatid)), tgcalls_loop).result()
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -178,4 +180,5 @@ def stop():
 
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 8000))
+    # Note: Running Flask in debug mode or with auto-reload sometimes conflicts with threaded event loops.
     app.run(host="0.0.0.0", port=port)
