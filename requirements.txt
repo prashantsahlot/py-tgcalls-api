@@ -10,3 +10,4 @@ ffmpeg-python
 requests
 python-dotenv
 hypercorn
+isodate
