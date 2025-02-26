@@ -80,7 +80,7 @@ async def init_clients():
     if not clients_initialized:
         assistant = Client(
             "assistant_account",
-            session_string=""
+            session_string=os.environ.get("ASSISTANT_SESSION", "")
         )
         await assistant.start()
         py_tgcalls = PyTgCalls(assistant)
