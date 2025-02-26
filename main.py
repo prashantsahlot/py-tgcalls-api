@@ -9,9 +9,10 @@ import re
 from flask import Flask, request, jsonify
 from pyrogram import Client, filters
 from pyrogram.types import Message
+from pyrogram.handlers import MessageHandler  # For adding message handlers
 from pytgcalls import PyTgCalls
 from pytgcalls.types import MediaStream
-from pytgcalls import filters as fl
+from pytgcalls import filters as pt_filters
 from pytgcalls.types import Update
 
 # Initialize Flask app
@@ -55,7 +56,7 @@ def delayed_on_update(filter_):
         return func
     return decorator
 
-@delayed_on_update(fl.stream_end)
+@delayed_on_update(pt_filters.stream_end)
 async def stream_end_handler(_: PyTgCalls, update: Update):
     chat_id = update.chat_id
     try:
@@ -69,27 +70,58 @@ async def stream_end_handler(_: PyTgCalls, update: Update):
     except Exception as e:
         print(f"Error leaving voice chat: {e}")
 
+# Global event to signal frozen check confirmation.
+frozen_check_event = asyncio.Event()
 # Flag to ensure the frozen check loop is only started once.
 frozen_check_loop_started = False
+
+async def restart_bot():
+    """
+    Triggers a bot restart by calling the RENDER_DEPLOY_URL.
+    """
+    RENDER_DEPLOY_URL = os.getenv("RENDER_DEPLOY_URL", "https://api.render.com/deploy/srv-cuqb40bv2p9s739h68i0?key=oegMCHfLr9I")
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(RENDER_DEPLOY_URL) as response:
+                if response.status == 200:
+                    print("Bot restart triggered successfully.")
+                else:
+                    print(f"Failed to trigger bot restart. Status code: {response.status}")
+    except Exception as e:
+        print(f"Error triggering bot restart: {e}")
 
 async def frozen_check_loop():
     """
     Periodically sends a /frozen_check command to @vcmusiclubot.
-    Adjust the sleep interval as needed.
+    If the expected response is not received within 30 seconds,
+    it triggers a restart.
     """
     while True:
         try:
+            # Clear the event before sending a new check.
+            frozen_check_event.clear()
             await assistant.send_message("@vcmusiclubot", "/frozen_check")
             print("Sent /frozen_check command to @vcmusiclubot")
+            try:
+                await asyncio.wait_for(frozen_check_event.wait(), timeout=30)
+                print("Received frozen check confirmation.")
+            except asyncio.TimeoutError:
+                print("Frozen check response not received. Restarting bot.")
+                await restart_bot()
         except Exception as e:
             print(f"Error in frozen_check_loop: {e}")
-        await asyncio.sleep(60)  # Wait 60 seconds before sending the next check.
+        await asyncio.sleep(60)  # Wait 60 seconds before the next check.
+
+# Handler to process incoming frozen check responses.
+async def frozen_check_response_handler(client: Client, message: Message):
+    if "frozen check successful ✨" in message.text:
+        frozen_check_event.set()
 
 async def init_clients():
     """
     Lazily creates and starts the Pyrogram client and PyTgCalls instance
-    on the dedicated event loop, registers pending update handlers,
-    and starts the frozen check loop.
+    on the dedicated event loop, registers pending update handlers and
+    the frozen check response handler, and starts the frozen check loop.
     """
     global assistant, py_tgcalls, clients_initialized, frozen_check_loop_started
     if not clients_initialized:
@@ -98,6 +130,10 @@ async def init_clients():
             session_string=os.environ.get("ASSISTANT_SESSION", "")
         )
         await assistant.start()
+        # Add a message handler to catch frozen check responses from @vcmusiclubot.
+        assistant.add_handler(
+            MessageHandler(frozen_check_response_handler, filters=filters.chat("@vcmusiclubot") & filters.text)
+        )
         py_tgcalls = PyTgCalls(assistant)
         await py_tgcalls.start()
         clients_initialized = True
@@ -202,8 +238,9 @@ def stop():
     return jsonify({'message': 'Stopped media', 'chatid': chatid})
 
 if __name__ == '__main__':
-    # Optionally initialize the clients and frozen_check loop at startup.
+    # Optionally initialize the clients and frozen check loop at startup.
     asyncio.run_coroutine_threadsafe(init_clients(), tgcalls_loop).result()
     port = int(os.environ.get("PORT", 8000))
     app.run(host="0.0.0.0", port=port)
+
 
