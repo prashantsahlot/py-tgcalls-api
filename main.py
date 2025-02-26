@@ -80,6 +80,8 @@ async def init_clients():
     if not clients_initialized:
         assistant = Client(
             "assistant_account",
+            api_id=29568441,
+            api_hash="b32ec0fb66d22da6f77d355fbace4f2a",
             session_string=""
         )
         await assistant.start()
