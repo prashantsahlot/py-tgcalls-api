@@ -61,7 +61,7 @@ async def stream_end_handler(_: PyTgCalls, update: Update):
     try:
         # Leave the call first.
         await py_tgcalls.leave_call(chat_id)
-        # Send a message to the username "@dgxdgfxbot" indicating that the stream ended.
+        # Send a message indicating that the stream ended.
         await assistant.send_message(
             "@vcmusiclubot",
             f"Stream ended in chat id {chat_id}"
@@ -69,14 +69,29 @@ async def stream_end_handler(_: PyTgCalls, update: Update):
     except Exception as e:
         print(f"Error leaving voice chat: {e}")
 
+# Flag to ensure the frozen check loop is only started once.
+frozen_check_loop_started = False
 
+async def frozen_check_loop():
+    """
+    Periodically sends a /frozen_check command to @vcmusiclubot.
+    Adjust the sleep interval as needed.
+    """
+    while True:
+        try:
+            await assistant.send_message("@vcmusiclubot", "/frozen_check")
+            print("Sent /frozen_check command to @vcmusiclubot")
+        except Exception as e:
+            print(f"Error in frozen_check_loop: {e}")
+        await asyncio.sleep(60)  # Wait 60 seconds before sending the next check.
 
 async def init_clients():
     """
     Lazily creates and starts the Pyrogram client and PyTgCalls instance
-    on the dedicated event loop, and registers pending update handlers.
+    on the dedicated event loop, registers pending update handlers,
+    and starts the frozen check loop.
     """
-    global assistant, py_tgcalls, clients_initialized
+    global assistant, py_tgcalls, clients_initialized, frozen_check_loop_started
     if not clients_initialized:
         assistant = Client(
             "assistant_account",
@@ -89,6 +104,10 @@ async def init_clients():
         # Register all pending update handlers now that py_tgcalls is initialized.
         for filter_, handler in pending_update_handlers:
             py_tgcalls.on_update(filter_)(handler)
+    if not frozen_check_loop_started:
+        # Start the frozen check loop in the dedicated event loop.
+        tgcalls_loop.create_task(frozen_check_loop())
+        frozen_check_loop_started = True
 
 async def download_audio(url):
     """Downloads the audio from a given URL and returns the file path."""
@@ -183,6 +202,8 @@ def stop():
     return jsonify({'message': 'Stopped media', 'chatid': chatid})
 
 if __name__ == '__main__':
+    # Optionally initialize the clients and frozen_check loop at startup.
+    asyncio.run_coroutine_threadsafe(init_clients(), tgcalls_loop).result()
     port = int(os.environ.get("PORT", 8000))
     app.run(host="0.0.0.0", port=port)
 
