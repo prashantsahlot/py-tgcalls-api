@@ -114,8 +114,11 @@ async def frozen_check_loop():
 
 # Handler to process incoming frozen check responses.
 async def frozen_check_response_handler(client: Client, message: Message):
+    # Wait for 2 seconds before checking the message content.
+    await asyncio.sleep(2)
     if "frozen check successful ✨" in message.text:
         frozen_check_event.set()
+
 
 async def init_clients():
     """
