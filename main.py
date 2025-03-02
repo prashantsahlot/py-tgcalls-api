@@ -59,19 +59,16 @@ def delayed_on_update(filter_):
 @delayed_on_update(pt_filters.stream_end)
 async def stream_end_handler(_: PyTgCalls, update: Update):
     chat_id = update.chat_id
-    STREAM_ENDED_ENDPOINT = os.environ.get("STREAM_ENDED_ENDPOINT", "https://vcmusicuser-xeoi.onrender.com/stream_ended")
     try:
         # Leave the call first.
         await py_tgcalls.leave_call(chat_id)
-        # Call the endpoint to notify that the stream has ended.
-        async with aiohttp.ClientSession() as session:
-            async with session.post(STREAM_ENDED_ENDPOINT, json={"chat_id": chat_id}) as resp:
-                if resp.status != 200:
-                    print(f"Error calling stream ended endpoint: {resp.status}")
-                else:
-                    print(f"Stream ended endpoint called successfully for chat {chat_id}")
+        # Send a message indicating that the stream ended.
+        await assistant.send_message(
+            "@vcmusiclubot",
+            f"Stream ended in chat id {chat_id}"
+        )
     except Exception as e:
-        print(f"Error in stream_end_handler: {e}")
+        print(f"Error leaving voice chat: {e}")
 
 
 # Global event to signal frozen check confirmation.
