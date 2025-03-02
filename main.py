@@ -119,7 +119,6 @@ async def frozen_check_response_handler(client: Client, message: Message):
     if "frozen check successful ✨" in message.text:
         frozen_check_event.set()
 
-
 async def init_clients():
     """
     Lazily creates and starts the Pyrogram client and PyTgCalls instance
@@ -240,10 +239,57 @@ def stop():
 
     return jsonify({'message': 'Stopped media', 'chatid': chatid})
 
+@app.route('/pause', methods=['GET'])
+def pause():
+    chatid = request.args.get('chatid')
+    if not chatid:
+        return jsonify({'error': 'Missing chatid parameter'}), 400
+    try:
+        chat_id = int(chatid)
+    except ValueError:
+        return jsonify({'error': 'Invalid chatid parameter'}), 400
+
+    try:
+        if not clients_initialized:
+            asyncio.run_coroutine_threadsafe(init_clients(), tgcalls_loop).result()
+
+        async def pause_stream_wrapper(cid):
+            await asyncio.sleep(0)
+            return await py_tgcalls.pause_stream(cid)
+        asyncio.run_coroutine_threadsafe(pause_stream_wrapper(chat_id), tgcalls_loop).result()
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+    return jsonify({'message': 'Paused media', 'chatid': chatid})
+
+@app.route('/resume', methods=['GET'])
+def resume():
+    chatid = request.args.get('chatid')
+    if not chatid:
+        return jsonify({'error': 'Missing chatid parameter'}), 400
+    try:
+        chat_id = int(chatid)
+    except ValueError:
+        return jsonify({'error': 'Invalid chatid parameter'}), 400
+
+    try:
+        if not clients_initialized:
+            asyncio.run_coroutine_threadsafe(init_clients(), tgcalls_loop).result()
+
+        async def resume_stream_wrapper(cid):
+            await asyncio.sleep(0)
+            return await py_tgcalls.resume_stream(cid)
+        asyncio.run_coroutine_threadsafe(resume_stream_wrapper(chat_id), tgcalls_loop).result()
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+    return jsonify({'message': 'Resumed media', 'chatid': chatid})
+
 if __name__ == '__main__':
     # Optionally initialize the clients and frozen check loop at startup.
     asyncio.run_coroutine_threadsafe(init_clients(), tgcalls_loop).result()
     port = int(os.environ.get("PORT", 8000))
     app.run(host="0.0.0.0", port=port)
+
 
 
