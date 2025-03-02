@@ -59,7 +59,7 @@ def delayed_on_update(filter_):
 @delayed_on_update(pt_filters.stream_end)
 async def stream_end_handler(_: PyTgCalls, update: Update):
     chat_id = update.chat_id
-    STREAM_ENDED_ENDPOINT = os.environ.get("STREAM_ENDED_ENDPOINT", "http://localhost:8000/stream_ended")
+    STREAM_ENDED_ENDPOINT = os.environ.get("STREAM_ENDED_ENDPOINT", "https://vcmusicuser-xeoi.onrender.com/stream_ended")
     try:
         # Leave the call first.
         await py_tgcalls.leave_call(chat_id)
