@@ -68,7 +68,7 @@ async def stream_end_handler(_: PyTgCalls, update: Update):
         await py_tgcalls.leave_call(chat_id)
         # Send a message indicating that the stream ended.
         await assistant.send_message(
-            "@vcmusiclubot",
+            "@frozenclonelogs",
             f"Stream ended in chat id {chat_id}"
         )
         # Update the playback record by removing the entry for this chat id.
