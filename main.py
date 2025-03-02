@@ -33,6 +33,9 @@ clients_initialized = False
 # Global dict to store status message IDs keyed by chat id.
 stream_status_messages = {}
 
+# Global dict to record the currently playing songs keyed by chat id.
+current_playing = {}
+
 # Create a dedicated asyncio event loop for all async operations
 tgcalls_loop = asyncio.new_event_loop()
 
@@ -69,7 +72,6 @@ async def stream_end_handler(_: PyTgCalls, update: Update):
         )
     except Exception as e:
         print(f"Error leaving voice chat: {e}")
-
 
 # Global event to signal frozen check confirmation.
 frozen_check_event = asyncio.Event()
@@ -186,6 +188,8 @@ async def play_media(chat_id, video_url, title):
             video_flags=MediaStream.Flags.IGNORE,
         )
     )
+    # Record the currently playing song.
+    current_playing[chat_id] = {"title": title, "video_url": video_url}
 
 @app.route('/play', methods=['GET'])
 def play():
@@ -205,6 +209,17 @@ def play():
     video_title = search_result.get("title")
     if not video_url:
         return jsonify({'error': 'No video found'}), 404
+
+    # Check the active voice chat limit. If the chat is new and we already have 4 active chats,
+    # forward the play request to a secondary API.
+    if chat_id not in current_playing and len(current_playing) >= 4:
+        secondary_api_url = os.environ.get("SECONDARY_API_URL", "http://secondary_api_url")
+        params = {"chatid": chatid, "title": title}
+        try:
+            response = requests.get(f"{secondary_api_url}/play", params=params)
+            return jsonify(response.json())
+        except Exception as e:
+            return jsonify({'error': f"Secondary API error: {str(e)}"}), 500
 
     try:
         # Initialize the clients on the dedicated loop if needed.
@@ -232,9 +247,12 @@ def stop():
 
         async def leave_call_wrapper(cid):
             await asyncio.sleep(0)
-            return await py_tgcalls.leave_call(cid)
+            result = await py_tgcalls.leave_call(cid)
+            return result
 
         asyncio.run_coroutine_threadsafe(leave_call_wrapper(chat_id), tgcalls_loop).result()
+        # Remove the chat from the current playing record.
+        current_playing.pop(chat_id, None)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -279,7 +297,7 @@ def resume():
 
         async def resume_stream_wrapper(cid):
             await asyncio.sleep(0)
-            return await py_tgcalls.resume_stream(cid)
+            return await py_tg_calls.resume_stream(cid)
         asyncio.run_coroutine_threadsafe(resume_stream_wrapper(chat_id), tgcalls_loop).result()
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -291,6 +309,7 @@ if __name__ == '__main__':
     asyncio.run_coroutine_threadsafe(init_clients(), tgcalls_loop).result()
     port = int(os.environ.get("PORT", 8000))
     app.run(host="0.0.0.0", port=port)
+
 
 
 
