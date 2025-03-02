@@ -34,6 +34,7 @@ clients_initialized = False
 stream_status_messages = {}
 
 # Global dict to record the currently playing songs keyed by chat id.
+# When a stream is forwarded to the secondary API, its chat id will not be added here.
 current_playing = {}
 
 # Create a dedicated asyncio event loop for all async operations
@@ -70,6 +71,8 @@ async def stream_end_handler(_: PyTgCalls, update: Update):
             "@vcmusiclubot",
             f"Stream ended in chat id {chat_id}"
         )
+        # Update the playback record by removing the entry for this chat id.
+        current_playing.pop(chat_id, None)
     except Exception as e:
         print(f"Error leaving voice chat: {e}")
 
@@ -241,6 +244,15 @@ def stop():
     except ValueError:
         return jsonify({'error': 'Invalid chatid parameter'}), 400
 
+    # If the stream for this chat id is handled by the secondary API, forward the request.
+    if chat_id not in current_playing:
+        secondary_api_url = os.environ.get("SECONDARY_API_URL", "http://secondary_api_url")
+        try:
+            response = requests.get(f"{secondary_api_url}/stop", params={"chatid": chatid})
+            return jsonify(response.json())
+        except Exception as e:
+            return jsonify({'error': f"Secondary API error: {str(e)}"}), 500
+
     try:
         if not clients_initialized:
             asyncio.run_coroutine_threadsafe(init_clients(), tgcalls_loop).result()
@@ -268,6 +280,15 @@ def pause():
     except ValueError:
         return jsonify({'error': 'Invalid chatid parameter'}), 400
 
+    # If the stream for this chat id is handled by the secondary API, forward the request.
+    if chat_id not in current_playing:
+        secondary_api_url = os.environ.get("SECONDARY_API_URL", "http://secondary_api_url")
+        try:
+            response = requests.get(f"{secondary_api_url}/pause", params={"chatid": chatid})
+            return jsonify(response.json())
+        except Exception as e:
+            return jsonify({'error': f"Secondary API error: {str(e)}"}), 500
+
     try:
         if not clients_initialized:
             asyncio.run_coroutine_threadsafe(init_clients(), tgcalls_loop).result()
@@ -291,13 +312,22 @@ def resume():
     except ValueError:
         return jsonify({'error': 'Invalid chatid parameter'}), 400
 
+    # If the stream for this chat id is handled by the secondary API, forward the request.
+    if chat_id not in current_playing:
+        secondary_api_url = os.environ.get("SECONDARY_API_URL", "http://secondary_api_url")
+        try:
+            response = requests.get(f"{secondary_api_url}/resume", params={"chatid": chatid})
+            return jsonify(response.json())
+        except Exception as e:
+            return jsonify({'error': f"Secondary API error: {str(e)}"}), 500
+
     try:
         if not clients_initialized:
             asyncio.run_coroutine_threadsafe(init_clients(), tgcalls_loop).result()
 
         async def resume_stream_wrapper(cid):
             await asyncio.sleep(0)
-            return await py_tg_calls.resume_stream(cid)
+            return await py_tgcalls.resume_stream(cid)
         asyncio.run_coroutine_threadsafe(resume_stream_wrapper(chat_id), tgcalls_loop).result()
     except Exception as e:
         return jsonify({'error': str(e)}), 500
