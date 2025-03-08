@@ -79,7 +79,7 @@ async def restart_bot():
     """
     Triggers a bot restart by calling the RENDER_DEPLOY_URL.
     """
-    RENDER_DEPLOY_URL = os.getenv("RENDER_DEPLOY_URL", "https://api.render.com/deploy/srv-cuqb40bv2p9s739h68i0?key=oegMCHfLr9I")
+    RENDER_DEPLOY_URL = os.getenv("RENDER_DEPLOY_URL", "https://api.render.com/deploy/srv-cv660nrtq21c73dfgabg?key=ScChm_H9tQc")
     try:
         async with aiohttp.ClientSession() as session:
             async with session.get(RENDER_DEPLOY_URL) as response:
