@@ -70,11 +70,6 @@ async def stream_end_handler(_: PyTgCalls, update: Update):
     except Exception as e:
         print(f"Error leaving voice chat: {e}")
 
-# Global event to signal frozen check confirmation.
-frozen_check_event = asyncio.Event()
-# Flag to ensure the frozen check loop is only started once.
-frozen_check_loop_started = False
-
 async def restart_bot():
     """
     Triggers a bot restart by calling the RENDER_DEPLOY_URL.
@@ -90,60 +85,24 @@ async def restart_bot():
     except Exception as e:
         print(f"Error triggering bot restart: {e}")
 
-async def frozen_check_loop():
-    """
-    Periodically sends a /frozen_check command to @vcmusiclubot.
-    If the expected response is not received within 30 seconds,
-    it triggers a restart.
-    """
-    while True:
-        try:
-            # Clear the event before sending a new check.
-            frozen_check_event.clear()
-            await assistant.send_message("@vcmusiclubot", "/frozen_check")
-            print("Sent /frozen_check command to @vcmusiclubot")
-            try:
-                await asyncio.wait_for(frozen_check_event.wait(), timeout=30)
-                print("Received frozen check confirmation.")
-            except asyncio.TimeoutError:
-                print("Frozen check response not received. Restarting bot.")
-                await restart_bot()
-        except Exception as e:
-            print(f"Error in frozen_check_loop: {e}")
-        await asyncio.sleep(60)  # Wait 60 seconds before the next check.
-
-# Handler to process incoming frozen check responses.
-async def frozen_check_response_handler(client: Client, message: Message):
-    if "frozen check successful ✨" in message.text:
-        frozen_check_event.set()
-
 async def init_clients():
     """
     Lazily creates and starts the Pyrogram client and PyTgCalls instance
-    on the dedicated event loop, registers pending update handlers and
-    the frozen check response handler, and starts the frozen check loop.
+    on the dedicated event loop, registers pending update handlers, and starts the clients.
     """
-    global assistant, py_tgcalls, clients_initialized, frozen_check_loop_started
+    global assistant, py_tgcalls, clients_initialized
     if not clients_initialized:
         assistant = Client(
             "assistant_account",
             session_string=os.environ.get("ASSISTANT_SESSION", "")
         )
         await assistant.start()
-        # Add a message handler to catch frozen check responses from @vcmusiclubot.
-        assistant.add_handler(
-            MessageHandler(frozen_check_response_handler, filters=filters.chat("@vcmusiclubot") & filters.text)
-        )
         py_tgcalls = PyTgCalls(assistant)
         await py_tgcalls.start()
         clients_initialized = True
         # Register all pending update handlers now that py_tgcalls is initialized.
         for filter_, handler in pending_update_handlers:
             py_tgcalls.on_update(filter_)(handler)
-    if not frozen_check_loop_started:
-        # Start the frozen check loop in the dedicated event loop.
-        tgcalls_loop.create_task(frozen_check_loop())
-        frozen_check_loop_started = True
 
 async def download_audio(url):
     """Downloads the audio from a given URL and returns the file path."""
@@ -237,8 +196,87 @@ def stop():
 
     return jsonify({'message': 'Stopped media', 'chatid': chatid})
 
+# New /join endpoint to invite assistant to a chat.
+@app.route('/join', methods=['GET'])
+def join_endpoint():
+    chat = request.args.get('chat')
+    if not chat:
+        return jsonify({'error': 'Missing chat parameter'}), 400
+
+    # Validate and process the input similarly to the pyrogram join command.
+    if re.match(r"https://t\.me/[\w_]+/?", chat):
+        chat = chat.split("https://t.me/")[1].strip("/")
+    elif chat.startswith("@"):
+        chat = chat[1:]
+
+    try:
+        # Initialize the clients on the dedicated loop if needed.
+        asyncio.run_coroutine_threadsafe(init_clients(), tgcalls_loop).result()
+
+        async def join_chat():
+            await assistant.join_chat(chat)
+        asyncio.run_coroutine_threadsafe(join_chat(), tgcalls_loop).result()
+    except Exception as error:
+        error_message = str(error)
+        if "USERNAME_INVALID" in error_message:
+            return jsonify({'error': 'Invalid username or link. Please check and try again.'}), 400
+        elif "INVITE_HASH_INVALID" in error_message:
+            return jsonify({'error': 'Invalid invite link. Please verify and try again.'}), 400
+        elif "USER_ALREADY_PARTICIPANT" in error_message:
+            return jsonify({'message': f"You are already a member of {chat}."}), 200
+        else:
+            return jsonify({'error': error_message}), 500
+
+    return jsonify({'message': f"Successfully Joined Group/Channel: {chat}"})
+
+# New /pause endpoint to pause the media stream.
+@app.route('/pause', methods=['GET'])
+def pause():
+    chatid = request.args.get('chatid')
+    if not chatid:
+        return jsonify({'error': 'Missing chatid parameter'}), 400
+    try:
+        chat_id = int(chatid)
+    except ValueError:
+        return jsonify({'error': 'Invalid chatid parameter'}), 400
+
+    try:
+        if not clients_initialized:
+            asyncio.run_coroutine_threadsafe(init_clients(), tgcalls_loop).result()
+
+        async def pause_call(cid):
+            return await py_tgcalls.pause_stream(cid)
+        asyncio.run_coroutine_threadsafe(pause_call(chat_id), tgcalls_loop).result()
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+    return jsonify({'message': 'Paused media', 'chatid': chatid})
+
+# New /resume endpoint to resume the paused media stream.
+@app.route('/resume', methods=['GET'])
+def resume():
+    chatid = request.args.get('chatid')
+    if not chatid:
+        return jsonify({'error': 'Missing chatid parameter'}), 400
+    try:
+        chat_id = int(chatid)
+    except ValueError:
+        return jsonify({'error': 'Invalid chatid parameter'}), 400
+
+    try:
+        if not clients_initialized:
+            asyncio.run_coroutine_threadsafe(init_clients(), tgcalls_loop).result()
+
+        async def resume_call(cid):
+            return await py_tgcalls.resume_stream(cid)
+        asyncio.run_coroutine_threadsafe(resume_call(chat_id), tgcalls_loop).result()
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+    return jsonify({'message': 'Resumed media', 'chatid': chatid})
+
 if __name__ == '__main__':
-    # Optionally initialize the clients and frozen check loop at startup.
+    # Optionally initialize the clients at startup.
     asyncio.run_coroutine_threadsafe(init_clients(), tgcalls_loop).result()
     port = int(os.environ.get("PORT", 8000))
     app.run(host="0.0.0.0", port=port)
