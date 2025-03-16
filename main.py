@@ -70,14 +70,22 @@ async def stream_end_handler(_: PyTgCalls, update: Update):
     except Exception as e:
         print(f"Error leaving voice chat: {e}")
 
+# --- Frozen Check Integration from GitHub History ---
+
+# Global event to signal frozen check confirmation.
+frozen_check_event = asyncio.Event()
+# Flag to ensure the frozen check loop is only started once.
+frozen_check_loop_started = False
+
 async def restart_bot():
     """
-    Triggers a bot restart by calling the RENDER_DEPLOY_URL.
+    Triggers a bot restart by calling the new endpoint via GET method.
     """
-    RENDER_DEPLOY_URL = os.getenv("RENDER_DEPLOY_URL", "https://api.render.com/deploy/srv-cv86ms9c1ekc73antbo0?key=dYquGSiBkCc")
+    # Use the new endpoint or an override via environment variable.
+    RESTART_ENDPOINT = os.getenv("RESTART_ENDPOINT", "https://vcmusicuser-kgp6.onrender.com/restart")
     try:
         async with aiohttp.ClientSession() as session:
-            async with session.get(RENDER_DEPLOY_URL) as response:
+            async with session.get(RESTART_ENDPOINT) as response:
                 if response.status == 200:
                     print("Bot restart triggered successfully.")
                 else:
@@ -85,24 +93,42 @@ async def restart_bot():
     except Exception as e:
         print(f"Error triggering bot restart: {e}")
 
-async def init_clients():
+async def frozen_check_loop():
     """
-    Lazily creates and starts the Pyrogram client and PyTgCalls instance
-    on the dedicated event loop, registers pending update handlers, and starts the clients.
+    Periodically sends a /frozen_check command to @vcmusiclubot.
+    If the expected response is not received within 30 seconds,
+    it triggers a restart.
     """
-    global assistant, py_tgcalls, clients_initialized
-    if not clients_initialized:
-        assistant = Client(
-            "assistant_account",
-            session_string=os.environ.get("ASSISTANT_SESSION", "")
-        )
-        await assistant.start()
-        py_tgcalls = PyTgCalls(assistant)
-        await py_tgcalls.start()
-        clients_initialized = True
-        # Register all pending update handlers now that py_tgcalls is initialized.
-        for filter_, handler in pending_update_handlers:
-            py_tgcalls.on_update(filter_)(handler)
+    while True:
+        try:
+            # Clear the event before sending a new check.
+            frozen_check_event.clear()
+            await assistant.send_message("@vcmusiclubot", "/frozen_check")
+            print("Sent /frozen_check command to @vcmusiclubot")
+            try:
+                await asyncio.wait_for(frozen_check_event.wait(), timeout=30)
+                print("Received frozen check confirmation.")
+            except asyncio.TimeoutError:
+                print("Frozen check response not received. Restarting bot.")
+                await restart_bot()
+        except Exception as e:
+            print(f"Error in frozen_check_loop: {e}")
+        await asyncio.sleep(60)  # Wait 60 seconds before the next check.
+
+# Handler to process incoming frozen check responses.
+async def frozen_check_response_handler(client: Client, message: Message):
+    if "frozen check successful ✨" in message.text:
+        frozen_check_event.set()
+
+# --- End of Frozen Check Integration ---
+
+@functools.lru_cache(maxsize=100)
+def search_video(title):
+    """Searches for a video using the external API and caches the result."""
+    search_response = requests.get(f"https://odd-block-a945.tenopno.workers.dev/search?title={title}")
+    if search_response.status_code != 200:
+        return None
+    return search_response.json()
 
 async def download_audio(url):
     """Downloads the audio from a given URL and returns the file path."""
@@ -124,14 +150,6 @@ async def download_audio(url):
     except Exception as e:
         raise Exception(f"Error downloading audio: {e}")
 
-@functools.lru_cache(maxsize=100)
-def search_video(title):
-    """Searches for a video using the external API and caches the result."""
-    search_response = requests.get(f"https://odd-block-a945.tenopno.workers.dev/search?title={title}")
-    if search_response.status_code != 200:
-        return None
-    return search_response.json()
-
 async def play_media(chat_id, video_url, title):
     """Downloads and plays the media in the specified chat."""
     media_path = await download_audio(video_url)
@@ -142,6 +160,34 @@ async def play_media(chat_id, video_url, title):
             video_flags=MediaStream.Flags.IGNORE,
         )
     )
+
+async def init_clients():
+    """
+    Lazily creates and starts the Pyrogram client and PyTgCalls instance
+    on the dedicated event loop, registers pending update handlers and
+    the frozen check response handler, and starts the frozen check loop.
+    """
+    global assistant, py_tgcalls, clients_initialized, frozen_check_loop_started
+    if not clients_initialized:
+        assistant = Client(
+            "assistant_account",
+            session_string=os.environ.get("ASSISTANT_SESSION", "")
+        )
+        await assistant.start()
+        # Add a message handler to catch frozen check responses from @vcmusiclubot.
+        assistant.add_handler(
+            MessageHandler(frozen_check_response_handler, filters=filters.chat("@vcmusiclubot") & filters.text)
+        )
+        py_tgcalls = PyTgCalls(assistant)
+        await py_tgcalls.start()
+        clients_initialized = True
+        # Register all pending update handlers now that py_tgcalls is initialized.
+        for filter_, handler in pending_update_handlers:
+            py_tgcalls.on_update(filter_)(handler)
+    if not frozen_check_loop_started:
+        # Start the frozen check loop in the dedicated event loop.
+        tgcalls_loop.create_task(frozen_check_loop())
+        frozen_check_loop_started = True
 
 @app.route('/play', methods=['GET'])
 def play():
@@ -196,7 +242,6 @@ def stop():
 
     return jsonify({'message': 'Stopped media', 'chatid': chatid})
 
-# New /join endpoint to invite assistant to a chat.
 @app.route('/join', methods=['GET'])
 def join_endpoint():
     chat = request.args.get('chat')
@@ -229,7 +274,6 @@ def join_endpoint():
 
     return jsonify({'message': f"Successfully Joined Group/Channel: {chat}"})
 
-# New /pause endpoint to pause the media stream.
 @app.route('/pause', methods=['GET'])
 def pause():
     chatid = request.args.get('chatid')
@@ -252,7 +296,6 @@ def pause():
 
     return jsonify({'message': 'Paused media', 'chatid': chatid})
 
-# New /resume endpoint to resume the paused media stream.
 @app.route('/resume', methods=['GET'])
 def resume():
     chatid = request.args.get('chatid')
@@ -276,7 +319,7 @@ def resume():
     return jsonify({'message': 'Resumed media', 'chatid': chatid})
 
 if __name__ == '__main__':
-    # Optionally initialize the clients at startup.
+    # Optionally initialize the clients and frozen check loop at startup.
     asyncio.run_coroutine_threadsafe(init_clients(), tgcalls_loop).result()
     port = int(os.environ.get("PORT", 8000))
     app.run(host="0.0.0.0", port=port)
