@@ -14,6 +14,7 @@ from pytgcalls import PyTgCalls
 from pytgcalls.types import MediaStream
 from pytgcalls import filters as pt_filters
 from pytgcalls.types import Update
+from pytgcalls.types.stream import StreamEnded  # <-- Added correct import
 
 # Initialize Flask app
 app = Flask(__name__)
@@ -56,8 +57,8 @@ def delayed_on_update(filter_):
         return func
     return decorator
 
-@delayed_on_update(pt_filters.stream_end)
-async def stream_end_handler(_: PyTgCalls, update: Update):
+@delayed_on_update(pt_filters.stream_end())  # <-- Use parentheses here
+async def stream_end_handler(_: PyTgCalls, update: StreamEnded):  # <-- Use StreamEnded type
     chat_id = update.chat_id
     try:
         # Leave the call first.
@@ -323,6 +324,7 @@ if __name__ == '__main__':
     asyncio.run_coroutine_threadsafe(init_clients(), tgcalls_loop).result()
     port = int(os.environ.get("PORT", 8000))
     app.run(host="0.0.0.0", port=port)
+
 
 
 
