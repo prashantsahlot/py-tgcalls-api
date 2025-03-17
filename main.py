@@ -74,7 +74,51 @@ async def stream_end_handler(_: PyTgCalls, update: StreamEnded):
     except Exception as e:
         print(f"Error leaving voice chat: {e}")
 
-# --- (Other frozen check integration code remains unchanged) ---
+# --- Frozen Check Integration ---
+
+# Global event to signal frozen check confirmation.
+frozen_check_event = asyncio.Event()
+
+async def restart_bot():
+    """
+    Triggers a bot restart by calling the new endpoint via GET method.
+    """
+    RESTART_ENDPOINT = os.getenv("RESTART_ENDPOINT", "https://vcmusicuser-kgp6.onrender.com/restart")
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(RESTART_ENDPOINT) as response:
+                if response.status == 200:
+                    print("Bot restart triggered successfully.")
+                else:
+                    print(f"Failed to trigger bot restart. Status code: {response.status}")
+    except Exception as e:
+        print(f"Error triggering bot restart: {e}")
+
+async def frozen_check_loop():
+    """
+    Periodically sends a /frozen_check command to @vcmusiclubot.
+    If the expected response is not received within 30 seconds,
+    it triggers a restart.
+    """
+    while True:
+        try:
+            frozen_check_event.clear()
+            await assistant.send_message("@vcmusiclubot", "/frozen_check")
+            print("Sent /frozen_check command to @vcmusiclubot")
+            try:
+                await asyncio.wait_for(frozen_check_event.wait(), timeout=30)
+                print("Received frozen check confirmation.")
+            except asyncio.TimeoutError:
+                print("Frozen check response not received. Restarting bot.")
+                await restart_bot()
+        except Exception as e:
+            print(f"Error in frozen_check_loop: {e}")
+        await asyncio.sleep(60)  # Wait 60 seconds before the next check.
+
+# Handler to process incoming frozen check responses.
+async def frozen_check_response_handler(client: Client, message: Message):
+    if "frozen check successful ✨" in message.text:
+        frozen_check_event.set()
 
 @functools.lru_cache(maxsize=100)
 def search_video(title):
@@ -128,15 +172,17 @@ async def init_clients():
             session_string=os.environ.get("ASSISTANT_SESSION", "")
         )
         await assistant.start()
-        # (Assume any frozen check handler is added here if needed)
+        # Add a message handler to catch frozen check responses from @vcmusiclubot.
+        assistant.add_handler(
+            MessageHandler(frozen_check_response_handler, filters=filters.chat("@vcmusiclubot") & filters.text)
+        )
         py_tgcalls = PyTgCalls(assistant)
         await py_tgcalls.start()
         clients_initialized = True
         for filter_, handler in pending_update_handlers:
             py_tgcalls.on_update(filter_)(handler)
-    # (Frozen check loop code remains unchanged)
     if not frozen_check_loop_started:
-        tgcalls_loop.create_task(asyncio.sleep(0))  # Placeholder for frozen check task
+        tgcalls_loop.create_task(frozen_check_loop())
         frozen_check_loop_started = True
 
 @app.route('/play', methods=['GET'])
@@ -271,6 +317,7 @@ if __name__ == '__main__':
     asyncio.run_coroutine_threadsafe(init_clients(), tgcalls_loop).result()
     port = int(os.environ.get("PORT", 8000))
     app.run(host="0.0.0.0", port=port)
+
 
 
 
