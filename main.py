@@ -14,7 +14,7 @@ from pytgcalls import PyTgCalls
 from pytgcalls.types import MediaStream
 from pytgcalls import filters as pt_filters
 from pytgcalls.types import Update
-from pytgcalls.types.stream import StreamEnded  # <-- Added correct import
+from pytgcalls.types.stream import StreamEnded  # <-- Correct import
 
 # Initialize Flask app
 app = Flask(__name__)
@@ -57,12 +57,12 @@ def delayed_on_update(filter_):
         return func
     return decorator
 
-@delayed_on_update(pt_filters.stream_end())  # <-- Use parentheses here
-async def stream_end_handler(_: PyTgCalls, update: StreamEnded):  # <-- Use StreamEnded type
+@delayed_on_update(pt_filters.stream_end())
+async def stream_end_handler(_: PyTgCalls, update: StreamEnded):
     chat_id = update.chat_id
     try:
-        # Leave the call using the updated method.
-        await py_tgcalls.leave_group_call(chat_id)
+        # Leave the call using the correct method.
+        await py_tgcalls.leave_call(chat_id)
         # Send a message indicating that the stream ended.
         await assistant.send_message(
             "@vcmusiclubot",
@@ -71,18 +71,11 @@ async def stream_end_handler(_: PyTgCalls, update: StreamEnded):  # <-- Use Stre
     except Exception as e:
         print(f"Error leaving voice chat: {e}")
 
-# --- Frozen Check Integration ---
-
-# Global event to signal frozen check confirmation.
-frozen_check_event = asyncio.Event()
-# Flag to ensure the frozen check loop is only started once.
-frozen_check_loop_started = False
-
 async def restart_bot():
     """
-    Triggers a bot restart by calling the new endpoint via GET method.
+    Triggers a bot restart by calling the RENDER_DEPLOY_URL.
     """
-    RESTART_ENDPOINT = os.getenv("RESTART_ENDPOINT", "https://vcmusicuser-kgp6.onrender.com/restart")
+    RESTART_ENDPOINT = os.getenv("RESTART_ENDPOINT", "https://api.render.com/deploy/srv-cv86ms9c1ekc73antbo0?key=dYquGSiBkCc")
     try:
         async with aiohttp.ClientSession() as session:
             async with session.get(RESTART_ENDPOINT) as response:
@@ -114,12 +107,13 @@ async def frozen_check_loop():
             print(f"Error in frozen_check_loop: {e}")
         await asyncio.sleep(60)  # Wait 60 seconds before the next check.
 
+# Global event to signal frozen check confirmation.
+frozen_check_event = asyncio.Event()
+
 # Handler to process incoming frozen check responses.
 async def frozen_check_response_handler(client: Client, message: Message):
     if "frozen check successful ✨" in message.text:
         frozen_check_event.set()
-
-# --- End of Frozen Check Integration ---
 
 @functools.lru_cache(maxsize=100)
 def search_video(title):
@@ -230,7 +224,7 @@ def stop():
 
         async def leave_call_wrapper(cid):
             await asyncio.sleep(0)
-            return await py_tgcalls.leave_group_call(cid)
+            return await py_tgcalls.leave_call(cid)
         asyncio.run_coroutine_threadsafe(leave_call_wrapper(chat_id), tgcalls_loop).result()
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -268,6 +262,7 @@ def join_endpoint():
 
     return jsonify({'message': f"Successfully Joined Group/Channel: {chat}"})
 
+# New /pause endpoint to pause the media stream.
 @app.route('/pause', methods=['GET'])
 def pause():
     chatid = request.args.get('chatid')
@@ -283,13 +278,15 @@ def pause():
             asyncio.run_coroutine_threadsafe(init_clients(), tgcalls_loop).result()
 
         async def pause_call(cid):
-            return await py_tgcalls.pause_stream(cid)
+            # Use the correct pause() method from the official API.
+            return await py_tgcalls.pause(cid)
         asyncio.run_coroutine_threadsafe(pause_call(chat_id), tgcalls_loop).result()
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
     return jsonify({'message': 'Paused media', 'chatid': chatid})
 
+# New /resume endpoint to resume the paused media stream.
 @app.route('/resume', methods=['GET'])
 def resume():
     chatid = request.args.get('chatid')
@@ -305,7 +302,8 @@ def resume():
             asyncio.run_coroutine_threadsafe(init_clients(), tgcalls_loop).result()
 
         async def resume_call(cid):
-            return await py_tgcalls.resume_stream(cid)
+            # Use the correct resume() method from the official API.
+            return await py_tgcalls.resume(cid)
         asyncio.run_coroutine_threadsafe(resume_call(chat_id), tgcalls_loop).result()
     except Exception as e:
         return jsonify({'error': str(e)}), 500
