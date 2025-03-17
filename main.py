@@ -61,8 +61,8 @@ def delayed_on_update(filter_):
 async def stream_end_handler(_: PyTgCalls, update: StreamEnded):  # <-- Use StreamEnded type
     chat_id = update.chat_id
     try:
-        # Leave the call first.
-        await py_tgcalls.leave_call(chat_id)
+        # Leave the call using the updated method.
+        await py_tgcalls.leave_group_call(chat_id)
         # Send a message indicating that the stream ended.
         await assistant.send_message(
             "@vcmusiclubot",
@@ -71,7 +71,7 @@ async def stream_end_handler(_: PyTgCalls, update: StreamEnded):  # <-- Use Stre
     except Exception as e:
         print(f"Error leaving voice chat: {e}")
 
-# --- Frozen Check Integration from GitHub History ---
+# --- Frozen Check Integration ---
 
 # Global event to signal frozen check confirmation.
 frozen_check_event = asyncio.Event()
@@ -82,7 +82,6 @@ async def restart_bot():
     """
     Triggers a bot restart by calling the new endpoint via GET method.
     """
-    # Use the new endpoint or an override via environment variable.
     RESTART_ENDPOINT = os.getenv("RESTART_ENDPOINT", "https://vcmusicuser-kgp6.onrender.com/restart")
     try:
         async with aiohttp.ClientSession() as session:
@@ -102,7 +101,6 @@ async def frozen_check_loop():
     """
     while True:
         try:
-            # Clear the event before sending a new check.
             frozen_check_event.clear()
             await assistant.send_message("@vcmusiclubot", "/frozen_check")
             print("Sent /frozen_check command to @vcmusiclubot")
@@ -186,7 +184,6 @@ async def init_clients():
         for filter_, handler in pending_update_handlers:
             py_tgcalls.on_update(filter_)(handler)
     if not frozen_check_loop_started:
-        # Start the frozen check loop in the dedicated event loop.
         tgcalls_loop.create_task(frozen_check_loop())
         frozen_check_loop_started = True
 
@@ -210,9 +207,7 @@ def play():
         return jsonify({'error': 'No video found'}), 404
 
     try:
-        # Initialize the clients on the dedicated loop if needed.
         asyncio.run_coroutine_threadsafe(init_clients(), tgcalls_loop).result()
-        # Schedule play_media on the dedicated loop.
         asyncio.run_coroutine_threadsafe(play_media(chat_id, video_url, video_title), tgcalls_loop).result()
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -235,8 +230,7 @@ def stop():
 
         async def leave_call_wrapper(cid):
             await asyncio.sleep(0)
-            return await py_tgcalls.leave_call(cid)
-
+            return await py_tgcalls.leave_group_call(cid)
         asyncio.run_coroutine_threadsafe(leave_call_wrapper(chat_id), tgcalls_loop).result()
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -256,7 +250,6 @@ def join_endpoint():
         chat = chat[1:]
 
     try:
-        # Initialize the clients on the dedicated loop if needed.
         asyncio.run_coroutine_threadsafe(init_clients(), tgcalls_loop).result()
 
         async def join_chat():
@@ -324,6 +317,7 @@ if __name__ == '__main__':
     asyncio.run_coroutine_threadsafe(init_clients(), tgcalls_loop).result()
     port = int(os.environ.get("PORT", 8000))
     app.run(host="0.0.0.0", port=port)
+
 
 
 
