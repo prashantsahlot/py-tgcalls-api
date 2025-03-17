@@ -64,8 +64,8 @@ def delayed_on_update(filter_):
 async def stream_end_handler(_: PyTgCalls, update: StreamEnded):
     chat_id = update.chat_id
     try:
-        # Leave the call using the updated method.
-        await py_tgcalls.leave_group_call(chat_id)
+        # Leave the call first.
+        await py_tgcalls.leave_call(chat_id)
         # Send a message indicating that the stream ended.
         await assistant.send_message(
             "@vcmusiclubot",
